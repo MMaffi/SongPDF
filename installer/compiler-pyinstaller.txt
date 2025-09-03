@@ -1,0 +1,1 @@
+pyinstaller --noconfirm --onefile --windowed --icon=assets/icons/songpdf.ico main.py

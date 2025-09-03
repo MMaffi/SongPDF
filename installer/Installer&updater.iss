@@ -1,24 +1,30 @@
 ; ------------------ CONFIGURAÇÃO BÁSICA ------------------
 [Setup]
 AppName=SongPDF
-AppVersion=1.0
+AppVersion=1.1
+AppPublisher=MMaffi Software
 DefaultDirName=C:\SongPDF
 DefaultGroupName=SongPDF
 OutputBaseFilename=SongPDF_Installer
 Compression=lzma
 SolidCompression=yes
 DisableProgramGroupPage=no
-UninstallDisplayIcon={app}\SongPDF.exe
 WizardStyle=modern
+; Ícone do instalador
+SetupIconFile=..\assets\icons\songpdf.ico
+; Ícone do desinstalador
+UninstallDisplayIcon=..\assets\icons\songpdf.ico
 
 ; ------------------ ARQUIVOS ------------------
 [Files]
 ; Exe principal
-Source: "dist\SongPDF.exe"; DestDir: "{app}"; Flags: ignoreversion
-; Pasta data
-Source: "data\*"; DestDir: "{app}\data"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\dist\SongPDF.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Pasta data (exceto o banco)
+Source: "..\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs createallsubdirs; Excludes: "songpdf.db"
+; Banco de dados (copiar apenas se não existir)
+Source: "..\data\songpdf.db"; DestDir: "{app}\data"; Flags: onlyifdoesntexist uninsneveruninstall
 ; Pasta assets
-Source: "assets\*"; DestDir: "{app}\assets"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 ; ------------------ TASKS ------------------
 [Tasks]

@@ -3,8 +3,10 @@ import sys
 import sqlite3
 import tempfile
 import webbrowser
+import json
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
+
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from io import BytesIO
@@ -15,14 +17,31 @@ except ImportError:
     messagebox.showerror("Erro", "PyPDF2 não instalado. Instale com: pip install PyPDF2")
     exit()
 
-# ------------------ BANCO ------------------ 
-DB_DIR = "data" 
-DB_FILE = os.path.join(DB_DIR, "songpdf.db")
+# ------------------ CONFIGURAÇÃO ------------------
+CONFIG_FILE = "config.json"
+DB_DIR = "data"
+DEFAULT_DB_FILE = os.path.join(DB_DIR, "songpdf.db")
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except:
+                return {}
+    return {}
+
+def save_config(config: dict):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
+
+config = load_config()
+DB_FILE = config.get("db_file", DEFAULT_DB_FILE)
 
 # ------------------ BANCO ------------------
-def init_db():
-    os.makedirs(DB_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_FILE)
+def init_db(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS musicas (
@@ -36,6 +55,22 @@ def init_db():
     conn.commit()
     conn.close()
 
+def conectar_banco(path):
+    try:
+        init_db(path)
+        # teste de conexão
+        conn = sqlite3.connect(path)
+        conn.execute("SELECT 1")
+        conn.close()
+        return True
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao conectar ao banco:\n{e}")
+        return False
+
+# inicializa banco padrão se ainda não existir
+init_db(DB_FILE)
+
+# ------------------ PDF ------------------
 def gerar_pdf(titulo, artista, tonalidade, letra):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -52,6 +87,7 @@ def gerar_pdf(titulo, artista, tonalidade, letra):
     buffer.seek(0)
     return buffer.read()
 
+# ------------------ FUNÇÕES DE BANCO ------------------
 def fetch_all_musicas():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -118,8 +154,8 @@ class SongPDFApp(ctk.CTk):
         self.geometry("1100x750")
         self.minsize(950, 650)
 
-        # Icone da janela 
-        if os.path.exists("./assets/icons/songpdf.ico"): self.iconbitmap("./assets/icons/songpdf.ico")
+        if os.path.exists("./assets/icons/songpdf.ico"):
+            self.iconbitmap("./assets/icons/songpdf.ico")
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
@@ -128,16 +164,107 @@ class SongPDFApp(ctk.CTk):
         top_frame = ctk.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", padx=20, pady=(20, 5))
 
+        # Botões principais
         btn_add = ctk.CTkButton(top_frame, text="➕ Nova Música", command=self.add_music_dialog)
         btn_add.pack(side="left", padx=5)
         btn_import = ctk.CTkButton(top_frame, text="⬇️ Importar PDF", command=self.import_pdf_dialog)
         btn_import.pack(side="left", padx=5)
 
+        # ---------- Botão ajuda / backup ----------
+        self.popup_menu = None
+        self.menu_hover = False
+
+        def mostrar_ajuda():
+            messagebox.showinfo(
+                "Ajuda",
+                "SongPDF é um gerenciador de músicas em PDF.\n\n"
+                "- Adicione novas músicas ou importe PDFs existentes.\n"
+                "- Edite, abra ou baixe os PDFs.\n"
+                "- Use a busca para localizar músicas rapidamente.\n"
+                "- Faça backup do banco de dados para segurança.\n"
+                "- Troque o banco de dados se quiser trabalhar com outro arquivo SQLite."
+            )
+
+        def fazer_backup():
+            path = filedialog.asksaveasfilename(
+                defaultextension=".db",
+                filetypes=[("SQLite DB", "*.db")],
+                initialfile="songpdf_backup.db"
+            )
+            if path:
+                try:
+                    conn = sqlite3.connect(DB_FILE)
+                    bkp = sqlite3.connect(path)
+                    conn.backup(bkp)
+                    bkp.close()
+                    conn.close()
+                    messagebox.showinfo("Sucesso", f"Backup salvo em:\n{path}")
+                except Exception as e:
+                    messagebox.showerror("Erro", f"Falha ao salvar backup: {e}")
+
+        def trocar_banco():
+            path = filedialog.askopenfilename(
+                filetypes=[("SQLite DB", "*.db")],
+                title="Escolha o banco de dados"
+            )
+            if not path:
+                return
+            if conectar_banco(path):
+                global DB_FILE
+                DB_FILE = path
+                config["db_file"] = path
+                save_config(config)
+                messagebox.showinfo("Sucesso", f"Conectado ao banco:\n{path}")
+                self.apply_search()
+
+        def close_popup():
+            if not self.menu_hover:
+                if self.popup_menu and self.popup_menu.winfo_exists():
+                    self.popup_menu.destroy()
+                    self.popup_menu = None
+
+        def open_popup():
+            if self.popup_menu and self.popup_menu.winfo_exists():
+                return
+            self.popup_menu = ctk.CTkToplevel(self)
+            x = btn_help.winfo_rootx()
+            y = btn_help.winfo_rooty() + btn_help.winfo_height()
+            self.popup_menu.geometry(f"240x200+{x}+{y}")
+            self.popup_menu.overrideredirect(True)
+            self.popup_menu.attributes("-topmost", True)
+
+            frame = ctk.CTkFrame(self.popup_menu, corner_radius=12)
+            frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+            frame.grid_rowconfigure((0, 1, 2, 3), weight=1)
+            frame.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkButton(frame, text="Ajuda", height=32,
+                        command=lambda: [self.popup_menu.destroy(), mostrar_ajuda()]).grid(row=0, column=0, sticky="ew", padx=20, pady=5)
+            ctk.CTkButton(frame, text="Fazer Backup", height=32,
+                        command=lambda: [self.popup_menu.destroy(), fazer_backup()]).grid(row=1, column=0, sticky="ew", padx=20, pady=5)
+            ctk.CTkButton(frame, text="Trocar Banco", height=32,
+                        command=lambda: [self.popup_menu.destroy(), trocar_banco()]).grid(row=2, column=0, sticky="ew", padx=20, pady=5)
+            ctk.CTkButton(frame, text="Mostrar Caminho do Banco", height=32,
+                        command=lambda: messagebox.showinfo("Banco Atual", f"Caminho: {DB_FILE}")).grid(row=3, column=0, sticky="ew", padx=20, pady=5)
+
+            self.popup_menu.bind("<Enter>", lambda e: set_hover(True))
+            self.popup_menu.bind("<Leave>", lambda e: set_hover(False))
+
+        def set_hover(state: bool):
+            self.menu_hover = state
+            if not state:
+                self.after(200, close_popup)
+
+        btn_help = ctk.CTkButton(top_frame, text="❓", width=40)
+        btn_help.pack(side="right", padx=5)
+        btn_help.bind("<Enter>", lambda e: [set_hover(True), open_popup()])
+        btn_help.bind("<Leave>", lambda e: set_hover(False))
+
         # ---------- Search frame ----------
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
         search_frame.pack(fill="x", padx=20, pady=(0, 10))
 
-        # Linha 1: Checkboxes
         checkbox_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
         checkbox_frame.pack(fill="x", pady=(0,5))
 
@@ -160,7 +287,6 @@ class SongPDFApp(ctk.CTk):
                 self.chk_artista.set(False)
                 self.search_field_var.set("tonalidade")
 
-        # Checkboxes menores
         ctk.CTkCheckBox(checkbox_frame, text="Tonalidade", variable=self.chk_tonalidade,
                         command=lambda: uncheck_others("tonalidade"), width=20, height=20).pack(side="right", padx=2)
         ctk.CTkCheckBox(checkbox_frame, text="Artista", variable=self.chk_artista,
@@ -168,7 +294,6 @@ class SongPDFApp(ctk.CTk):
         ctk.CTkCheckBox(checkbox_frame, text="Título", variable=self.chk_titulo,
                         command=lambda: uncheck_others("titulo"), width=20, height=20).pack(side="right", padx=2)
 
-        # Linha 2: Entry e botão
         search_input_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
         search_input_frame.pack(fill="x")
         btn_search = ctk.CTkButton(search_input_frame, text="🔍 Buscar", width=70, command=self.apply_search)
@@ -192,7 +317,6 @@ class SongPDFApp(ctk.CTk):
         total = len(musicas)
         for idx, music in enumerate(musicas):
             self.add_card(music)
-            # linha de separação (não coloca depois do último)
             if idx < total - 1:
                 separator = ctk.CTkFrame(self.scroll_frame, height=2, fg_color="gray50")
                 separator.pack(fill="x", padx=15, pady=5)
@@ -386,6 +510,5 @@ class SongPDFApp(ctk.CTk):
 
 
 if __name__ == "__main__":
-    init_db()
     app = SongPDFApp()
     app.mainloop()

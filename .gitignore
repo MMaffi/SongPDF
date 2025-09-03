@@ -9,3 +9,4 @@ Output/
 *.log
 *.spec
 .env
+config.json
