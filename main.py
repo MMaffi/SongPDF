@@ -171,8 +171,11 @@ def fetch_grupos_da_musica(musica_id):
 def gerar_pdf(titulo, artista, tonalidade, letra):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    # Configurações de fonte
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(100, 800, titulo)
+    c.drawString(100, height - 50, titulo)
     c.setFont("Helvetica", 12)
     
     # Formata a linha de artista e tonalidade
@@ -185,13 +188,48 @@ def gerar_pdf(titulo, artista, tonalidade, letra):
         info_line = tonalidade
     
     if info_line:
-        c.drawString(100, 780, info_line)
+        c.drawString(100, height - 70, info_line)
     
-    text = c.beginText(100, 750 if info_line else 780)
-    text.setFont("Helvetica", 11)
-    for linha in letra.splitlines():
-        text.textLine(linha)
-    c.drawText(text)
+    # Preparar o texto da letra
+    c.setFont("Helvetica", 11)
+    y_position = height - 100
+    line_height = 14
+    margin = 100
+    
+    # Dividir a letra em linhas
+    lines = []
+    for line in letra.splitlines():
+        words = line.split()
+        current_line = ""
+        for word in words:
+            test_line = current_line + word + " "
+            if c.stringWidth(test_line, "Helvetica", 11) < (width - 2 * margin):
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line.strip())
+                current_line = word + " "
+        if current_line:
+            lines.append(current_line.strip())
+    
+    # Desenhar as linhas com quebra de página
+    page_number = 1
+    
+    for line in lines:
+        if y_position < 50:
+            c.showPage()
+            c.setFont("Helvetica", 11)
+            y_position = height - 50
+            page_number += 1
+            
+            # Adicionar número da página
+            c.setFont("Helvetica", 9)
+            c.drawString(width - 100, 30, f"Página {page_number}")
+            c.setFont("Helvetica", 11)
+        
+        c.drawString(margin, y_position, line)
+        y_position -= line_height
+    
     c.save()
     buffer.seek(0)
     return buffer.read()
