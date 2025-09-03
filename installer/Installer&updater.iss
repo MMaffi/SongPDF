@@ -1,7 +1,7 @@
 ; ------------------ CONFIGURAÇÃO BÁSICA ------------------
 [Setup]
 AppName=SongPDF
-AppVersion=1.1
+AppVersion=1.1.3.9.25
 AppPublisher=MMaffi Software
 DefaultDirName=C:\SongPDF
 DefaultGroupName=SongPDF
