@@ -51,7 +51,8 @@ def init_db(path):
             titulo TEXT NOT NULL,
             artista TEXT,
             tonalidade TEXT,
-            pdf BLOB
+            pdf BLOB,
+            texto_original TEXT
         )
     """)
     
@@ -109,7 +110,7 @@ def criar_grupo(nome):
         conn.commit()
         return True
     except sqlite3.IntegrityError:
-        return False  # Grupo já existe
+        return False
     finally:
         conn.close()
 
@@ -128,7 +129,7 @@ def adicionar_musica_ao_grupo(musica_id, grupo_id):
         conn.commit()
         return True
     except sqlite3.IntegrityError:
-        return False  # Relação já existe
+        return False
     finally:
         conn.close()
 
@@ -168,12 +169,12 @@ def fetch_grupos_da_musica(musica_id):
     return rows
 
 # ------------------ PDF ------------------
-def gerar_pdf(titulo, artista, tonalidade, letra):
+def gerar_pdf(titulo, artista, tonalidade, letra, tamanho_fonte=11):
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     
-    # Configurações de fonte
+    # Configurações de fonte para título
     c.setFont("Helvetica-Bold", 16)
     c.drawString(100, height - 50, titulo)
     c.setFont("Helvetica", 12)
@@ -190,44 +191,32 @@ def gerar_pdf(titulo, artista, tonalidade, letra):
     if info_line:
         c.drawString(100, height - 70, info_line)
     
-    # Preparar o texto da letra
-    c.setFont("Helvetica", 11)
+    # Preparar o texto da letra com o tamanho de fonte especificado
+    c.setFont("Helvetica", tamanho_fonte)
     y_position = height - 100
-    line_height = 14
+    line_height = tamanho_fonte + 3
     margin = 100
     
-    # Dividir a letra em linhas
-    lines = []
-    for line in letra.splitlines():
-        words = line.split()
-        current_line = ""
-        for word in words:
-            test_line = current_line + word + " "
-            if c.stringWidth(test_line, "Helvetica", 11) < (width - 2 * margin):
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line.strip())
-                current_line = word + " "
-        if current_line:
-            lines.append(current_line.strip())
+    # Manter as quebras de linha originais
+    lines = letra.splitlines()
     
-    # Desenhar as linhas com quebra de página
+    # Desenhar las linhas com quebra de página
     page_number = 1
     
     for line in lines:
         if y_position < 50:
             c.showPage()
-            c.setFont("Helvetica", 11)
+            c.setFont("Helvetica", tamanho_fonte)
             y_position = height - 50
             page_number += 1
             
             # Adicionar número da página
             c.setFont("Helvetica", 9)
             c.drawString(width - 100, 30, f"Página {page_number}")
-            c.setFont("Helvetica", 11)
+            c.setFont("Helvetica", tamanho_fonte)
         
-        c.drawString(margin, y_position, line)
+        if line.strip():  
+            c.drawString(margin, y_position, line)
         y_position -= line_height
     
     c.save()
@@ -251,30 +240,30 @@ def fetch_pdf(music_id):
     conn.close()
     return row[0] if row else None
 
-def insert_music(titulo, artista, tonalidade, pdf_bytes):
+def insert_music(titulo, artista, tonalidade, pdf_bytes, texto_original=""):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO musicas (titulo, artista, tonalidade, pdf) VALUES (?, ?, ?, ?)",
-        (titulo, artista, tonalidade, pdf_bytes)
+        "INSERT INTO musicas (titulo, artista, tonalidade, pdf, texto_original) VALUES (?, ?, ?, ?, ?)",
+        (titulo, artista, tonalidade, pdf_bytes, texto_original)
     )
     music_id = cur.lastrowid
     conn.commit()
     conn.close()
     return music_id
 
-def update_music(music_id, titulo, artista, tonalidade, pdf_bytes=None):
+def update_music(music_id, titulo, artista, tonalidade, pdf_bytes=None, texto_original=""):
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
     if pdf_bytes:
         cur.execute(
-            "UPDATE musicas SET titulo=?, artista=?, tonalidade=?, pdf=? WHERE id=?",
-            (titulo, artista, tonalidade, pdf_bytes, music_id)
+            "UPDATE musicas SET titulo=?, artista=?, tonalidade=?, pdf=?, texto_original=? WHERE id=?",
+            (titulo, artista, tonalidade, pdf_bytes, texto_original, music_id)
         )
     else:
         cur.execute(
-            "UPDATE musicas SET titulo=?, artista=?, tonalidade=? WHERE id=?",
-            (titulo, artista, tonalidade, music_id)
+            "UPDATE musicas SET titulo=?, artista=?, tonalidade=?, texto_original=? WHERE id=?",
+            (titulo, artista, tonalidade, texto_original, music_id)
         )
     conn.commit()
     conn.close()
@@ -295,6 +284,25 @@ def search_musicas(campo, termo):
     conn.close()
     return rows
 
+# ------------------ FUNÇÃO PARA MENSAGENS NO TOPO ------------------
+def mostrar_mensagem_topo(titulo, mensagem, tipo="info"):
+    # Criar uma janela temporária para ser pai da messagebox
+    root = ctk.CTk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+    
+    if tipo == "info":
+        result = messagebox.showinfo(titulo, mensagem, parent=root)
+    elif tipo == "warning":
+        result = messagebox.showwarning(titulo, mensagem, parent=root)
+    elif tipo == "error":
+        result = messagebox.showerror(titulo, mensagem, parent=root)
+    elif tipo == "yesno":
+        result = messagebox.askyesno(titulo, mensagem, parent=root)
+    
+    root.destroy()
+    return result
+
 # ------------------ APP ------------------
 class SongPDFApp(ctk.CTk):
     def __init__(self):
@@ -307,7 +315,7 @@ class SongPDFApp(ctk.CTk):
             self.iconbitmap("./assets/icons/songpdf.ico")
 
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
+        ctk.set_default_color_theme("dark-blue")
 
         # Variáveis de estado
         self.grupo_selecionado = None
@@ -330,15 +338,16 @@ class SongPDFApp(ctk.CTk):
         self.menu_hover = False
 
         def mostrar_ajuda():
-            messagebox.showinfo(
+            mostrar_mensagem_topo(
                 "Ajuda",
                 "SongPDF é um gerenciador de músicas em PDF.\n\n"
                 "- Adicione novas músicas ou importe PDFs existentes.\n"
-                "- Edite, abra ou baixe os PDFs.\n"
+                "- Edite, abla ou baixe os PDFs.\n"
                 "- Use a busca para localizar músicas rapidamente.\n"
                 "- Organize músicas em grupos/pastas.\n"
                 "- Faça backup do banco de dados para segurança.\n"
-                "- Troque o banco de dados se quiser trabalhar com outro arquivo SQLite."
+                "- Troque o banco de dados se quiser trabalhar com outro arquivo SQLite.",
+                "info"
             )
 
         def fazer_backup():
@@ -349,7 +358,7 @@ class SongPDFApp(ctk.CTk):
                 "Deseja continuar com o backup?"
             )
             
-            if not messagebox.askyesno("Aviso - Backup", aviso):
+            if not mostrar_mensagem_topo("Aviso - Backup", aviso, "yesno"):
                 return
             
             path = filedialog.asksaveasfilename(
@@ -364,9 +373,9 @@ class SongPDFApp(ctk.CTk):
                     conn.backup(bkp)
                     bkp.close()
                     conn.close()
-                    messagebox.showinfo("Sucesso", f"Backup salvo em:\n{path}")
+                    mostrar_mensagem_topo("Sucesso", f"Backup salvo em:\n{path}", "info")
                 except Exception as e:
-                    messagebox.showerror("Erro", f"Falha ao salvar backup: {e}")
+                    mostrar_mensagem_topo("Erro", f"Falha ao salvar backup: {e}", "error")
 
         def trocar_banco():
             path = filedialog.askopenfilename(
@@ -380,7 +389,7 @@ class SongPDFApp(ctk.CTk):
                 DB_FILE = path
                 config["db_file"] = path
                 save_config(config)
-                messagebox.showinfo("Sucesso", f"Conectado ao banco:\n{path}")
+                mostrar_mensagem_topo("Sucesso", f"Conectado ao banco:\n{path}", "info")
                 self.apply_search()
 
         def close_popup():
@@ -427,7 +436,7 @@ class SongPDFApp(ctk.CTk):
             ctk.CTkButton(frame, text="Trocar Banco", height=32,
                         command=lambda: [self.popup_menu.destroy(), trocar_banco()]).grid(row=2, column=0, sticky="ew", padx=20, pady=5)
             ctk.CTkButton(frame, text="Mostrar Caminho do Banco", height=32,
-                        command=lambda: messagebox.showinfo("Banco Atual", f"Caminho: {DB_FILE}")).grid(row=3, column=0, sticky="ew", padx=20, pady=5)
+                        command=lambda: mostrar_mensagem_topo("Banco Atual", f"Caminho: {DB_FILE}", "info")).grid(row=3, column=0, sticky="ew", padx=20, pady=5)
 
             self.popup_menu.bind("<Enter>", lambda e: set_hover(True))
             self.popup_menu.bind("<Leave>", lambda e: set_hover(False))
@@ -533,7 +542,7 @@ class SongPDFApp(ctk.CTk):
     def gerenciar_grupos_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Gerenciar Grupos")
-        dialog.geometry("500x600")  # Aumentei o tamanho para caber a nova funcionalidade
+        dialog.geometry("500x600")
         dialog.attributes("-topmost", True)
         
         # Adicionar ícone
@@ -550,7 +559,7 @@ class SongPDFApp(ctk.CTk):
         tab1 = tabview.add("Gerenciar Grupos")
         tab2 = tabview.add("Adicionar Múltiplas")
 
-        # ABA 1: Gerenciar Grupos (já existente)
+        # ABA 1
         # Frame para adicionar novo grupo
         add_frame = ctk.CTkFrame(tab1)
         add_frame.pack(fill="x", padx=20, pady=10)
@@ -563,16 +572,16 @@ class SongPDFApp(ctk.CTk):
         def adicionar_grupo():
             nome = novo_grupo_var.get().strip()
             if not nome:
-                messagebox.showwarning("Aviso", "Digite um nome para o grupo.")
+                mostrar_mensagem_topo("Aviso", "Digite um nome para o grupo.", "warning")
                 return
             if criar_grupo(nome):
-                messagebox.showinfo("Sucesso", f"Grupo '{nome}' criado!")
+                mostrar_mensagem_topo("Sucesso", f"Grupo '{nome}' criado!", "info")
                 entry_grupo.delete(0, 'end')
                 self.atualizar_combobox_grupos()
                 carregar_grupos()
-                carregar_grupos_multiplas()  # Atualiza a segunda aba também
+                carregar_grupos_multiplas()
             else:
-                messagebox.showerror("Erro", f"Grupo '{nome}' já existe!")
+                mostrar_mensagem_topo("Erro", f"Grupo '{nome}' já existe!", "error")
 
         ctk.CTkButton(add_frame, text="Adicionar", command=adicionar_grupo).pack(pady=5)
 
@@ -595,10 +604,10 @@ class SongPDFApp(ctk.CTk):
                 ctk.CTkLabel(grupo_frame, text=nome, width=250).pack(side="left", padx=5)
                 
                 def excluir(g_id=grupo_id, g_nome=nome):
-                    if messagebox.askyesno("Confirmar", f"Excluir grupo '{g_nome}'?\n\nAs músicas não serão excluídas, apenas removidas do grupo."):
+                    if mostrar_mensagem_topo("Confirmar", f"Excluir grupo '{g_nome}'?\n\nAs músicas não serão excluídas, apenas removidas do grupo.", "yesno"):
                         excluir_grupo(g_id)
                         carregar_grupos()
-                        carregar_grupos_multiplas()  # Atualiza a segunda aba também
+                        carregar_grupos_multiplas()
                         self.atualizar_combobox_grupos()
                         if self.grupo_selecionado == g_id:
                             self.grupo_selecionado = None
@@ -676,7 +685,7 @@ class SongPDFApp(ctk.CTk):
 
         def adicionar_multiplas():
             if not fetch_all_grupos():
-                messagebox.showwarning("Aviso", "Crie um grupo primeiro!")
+                mostrar_mensagem_topo("Aviso", "Crie um grupo primeiro!", "warning")
                 return
                 
             grupo_nome = grupos_multiplas_var.get()
@@ -687,7 +696,7 @@ class SongPDFApp(ctk.CTk):
                     break
             
             if not grupo_id:
-                messagebox.showerror("Erro", "Grupo não encontrado!")
+                mostrar_mensagem_topo("Erro", "Grupo não encontrado!", "error")
                 return
             
             musicas_selecionadas = []
@@ -698,7 +707,7 @@ class SongPDFApp(ctk.CTk):
                             musicas_selecionadas.append(child.music_id)
             
             if not musicas_selecionadas:
-                messagebox.showwarning("Aviso", "Selecione pelo menos uma música!")
+                mostrar_mensagem_topo("Aviso", "Selecione pelo menos uma música!", "warning")
                 return
             
             # Adicionar cada música ao grupo
@@ -707,9 +716,9 @@ class SongPDFApp(ctk.CTk):
                 if adicionar_musica_ao_grupo(music_id, grupo_id):
                     adicionadas += 1
             
-            messagebox.showinfo("Sucesso", f"{adicionadas} músicas adicionadas ao grupo '{grupo_nome}'!")
-            carregar_musicas_multiplas()  # Recarregar a lista para remover as adicionadas
-            self.apply_search()  # Atualiza a lista principal
+            mostrar_mensagem_topo("Sucesso", f"{adicionadas} músicas adicionadas ao grupo '{grupo_nome}'!", "info")
+            carregar_musicas_multiplas() 
+            self.apply_search() 
 
         ctk.CTkButton(multiplas_frame, text="Adicionar Selecionadas ao Grupo", 
                     command=adicionar_multiplas).pack(pady=10)
@@ -810,19 +819,10 @@ class SongPDFApp(ctk.CTk):
         ctk.CTkButton(btn_frame, text="⬆️ Abrir", width=70, 
                     command=lambda: self.open_pdf(music_id)).pack(side="left", padx=2)
         
-        # Alternativa com Canvas para controle total
-        menu_canvas = ctk.CTkCanvas(btn_frame, width=30, height=30, bg="#2b2b2b", highlightthickness=0)
-        menu_canvas.pack(side="left", padx=4)
-
-        # Desenhar três pontos
-        menu_canvas.create_text(15, 10, text="•", fill="#ffffff", font=("Arial", 13))
-        menu_canvas.create_text(15, 15, text="•", fill="#ffffff", font=("Arial", 13))
-        menu_canvas.create_text(15, 20, text="•", fill="#ffffff", font=("Arial", 13))
-
-        # Tornar clicável
-        menu_canvas.bind("<Button-1>", lambda e, m_id=music_id, t=titulo: self.show_music_menu(m_id, t, menu_canvas))
-        menu_canvas.bind("<Enter>", lambda e: menu_canvas.configure(bg="#2F2F2F", cursor="hand2"))
-        menu_canvas.bind("<Leave>", lambda e: menu_canvas.configure(bg="#2b2b2b"))
+        # Botão Menu (três pontos)
+        menu_btn = ctk.CTkButton(btn_frame, text="•••", width=40,
+                                command=lambda m_id=music_id, t=titulo: self.show_music_menu(m_id, t, menu_btn))
+        menu_btn.pack(side="left", padx=2)
 
     # ---------- Menu de Opções da Música ----------
     def show_music_menu(self, music_id, titulo, button):
@@ -839,16 +839,16 @@ class SongPDFApp(ctk.CTk):
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         
-        menu_width = 140  # Largura reduzida
-        menu_height = 128  # Altura reduzida (4 botões de 28px + espaçamento)
+        menu_width = 140
+        menu_height = 128
         
         # Ajustar posição se estiver saindo da tela à direita
         if x + menu_width > screen_width:
-            x = screen_width - menu_width - 10  # 10px de margem
+            x = screen_width - menu_width - 10
         
         # Ajustar posição se estiver saindo da tela em baixo
         if y + menu_height > screen_height:
-            y = button.winfo_rooty() - menu_height  # Mostrar acima do botão
+            y = button.winfo_rooty() - menu_height
         
         menu.geometry(f"{menu_width}x{menu_height}+{x}+{y}")
         
@@ -875,7 +875,7 @@ class SongPDFApp(ctk.CTk):
         ctk.CTkButton(frame, text="Editar", **btn_style,
                     command=lambda: [close_menu(), self.edit_music_dialog(music_id)]).grid(row=1, column=0, sticky="nsew", padx=3, pady=1)
         
-        ctk.CTkButton(frame, text="Baixar", **btn_style,
+        ctk.CTkButton(frame, text="Download", **btn_style,
                     command=lambda: [close_menu(), self.download_pdf(music_id, titulo)]).grid(row=2, column=0, sticky="nsew", padx=3, pady=1)
         
         ctk.CTkButton(frame, text="Excluir", **btn_style, fg_color="red",
@@ -907,7 +907,7 @@ class SongPDFApp(ctk.CTk):
     def open_pdf(self, music_id):
         pdf_bytes = fetch_pdf(music_id)
         if not pdf_bytes:
-            messagebox.showwarning("Aviso", "Esta música não possui PDF anexado.")
+            mostrar_mensagem_topo("Aviso", "Esta música não possui PDF anexado.", "warning")
             return
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(pdf_bytes)
@@ -916,7 +916,7 @@ class SongPDFApp(ctk.CTk):
     def download_pdf(self, music_id, titulo):
         pdf_bytes = fetch_pdf(music_id)
         if not pdf_bytes:
-            messagebox.showerror("Erro", "PDF não encontrado.")
+            mostrar_mensagem_topo("Erro", "PDF não encontrado.", "error")
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".pdf",
@@ -926,10 +926,10 @@ class SongPDFApp(ctk.CTk):
         if path:
             with open(path, "wb") as f:
                 f.write(pdf_bytes)
-            messagebox.showinfo("Sucesso", f"PDF salvo em:\n{path}")
+            mostrar_mensagem_topo("Sucesso", f"PDF salvo em:\n{path}", "info")
 
     def confirm_delete(self, music_id):
-        if messagebox.askyesno("Confirmação", "Deseja realmente excluir esta música?"):
+        if mostrar_mensagem_topo("Confirmação", "Deseja realmente excluir esta música?", "yesno"):
             delete_music(music_id)
             self.apply_search()
 
@@ -965,33 +965,63 @@ class SongPDFApp(ctk.CTk):
     def add_music_dialog(self):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Nova Música")
-        dialog.geometry("500x600")
+        dialog.geometry("600x700")
         dialog.attributes("-topmost", True)
+        
+        # Adicionar ícone
+        if os.path.exists("./assets/icons/songpdf.ico"):
+            try:
+                dialog.iconbitmap("./assets/icons/songpdf.ico")
+            except:
+                pass
 
         titulo_var = ctk.StringVar()
         artista_var = ctk.StringVar()
         tonalidade_var = ctk.StringVar()
+        tamanho_fonte_var = ctk.IntVar(value=11)
 
-        ctk.CTkLabel(dialog, text="Título:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=titulo_var).pack(fill="x", padx=20)
-        ctk.CTkLabel(dialog, text="Artista:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=artista_var).pack(fill="x", padx=20)
-        ctk.CTkLabel(dialog, text="Tonalidade:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=tonalidade_var).pack(fill="x", padx=20)
+        # Frame para os campos básicos
+        campos_frame = ctk.CTkFrame(dialog)
+        campos_frame.pack(fill="x", padx=20, pady=5)
 
-        ctk.CTkLabel(dialog, text="Letra / Conteúdo do PDF:").pack(pady=5)
-        letra_text = ctk.CTkTextbox(dialog, height=200)
+        ctk.CTkLabel(campos_frame, text="Título:").grid(row=0, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=titulo_var).grid(row=0, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Artista:").grid(row=1, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=artista_var).grid(row=1, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Tonalidade:").grid(row=2, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=tonalidade_var).grid(row=2, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Tamanho da Fonte:").grid(row=3, column=0, sticky="w", pady=5)
+        fonte_frame = ctk.CTkFrame(campos_frame, fg_color="transparent")
+        fonte_frame.grid(row=3, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkSlider(fonte_frame, from_=8, to=16, variable=tamanho_fonte_var, 
+                     number_of_steps=8, width=150).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(fonte_frame, textvariable=tamanho_fonte_var).pack(side="left")
+
+        campos_frame.columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(dialog, text="Letra / Conteúdo do PDF:").pack(pady=(10, 5))
+        letra_text = ctk.CTkTextbox(dialog, height=250)
         letra_text.pack(fill="both", padx=20, pady=5, expand=True)
 
         def save():
             if not titulo_var.get():
-                messagebox.showwarning("Aviso", "Preencha o título da música.")
+                mostrar_mensagem_topo("Aviso", "Preencha o título da música.", "warning")
                 return
-            pdf_bytes = gerar_pdf(titulo_var.get(), artista_var.get(), tonalidade_var.get(), letra_text.get("1.0", "end-1c"))
-            music_id = insert_music(titulo_var.get(), artista_var.get(), tonalidade_var.get(), pdf_bytes)
+            
+            # Obter o texto preservando as quebras de linha
+            texto_completo = letra_text.get("1.0", "end-1c")
+            
+            pdf_bytes = gerar_pdf(titulo_var.get(), artista_var.get(), tonalidade_var.get(), 
+                                 texto_completo, tamanho_fonte_var.get())
+            music_id = insert_music(titulo_var.get(), artista_var.get(), tonalidade_var.get(), 
+                                   pdf_bytes, texto_completo)
             
             # Perguntar se quer adicionar a grupos
-            if messagebox.askyesno("Grupos", "Deseja adicionar esta música a algum grupo?"):
+            if mostrar_mensagem_topo("Grupos", "Deseja adicionar esta música a algum grupo?", "yesno"):
                 self.gerenciar_grupos_musica(music_id, titulo_var.get())
             
             dialog.destroy()
@@ -1003,54 +1033,70 @@ class SongPDFApp(ctk.CTk):
     def edit_music_dialog(self, music_id):
         dialog = ctk.CTkToplevel(self)
         dialog.title("Editar Música")
-        dialog.geometry("500x600")
+        dialog.geometry("600x700")
         dialog.attributes("-topmost", True)
+        
+        # Adicionar ícone
+        if os.path.exists("./assets/icons/songpdf.ico"):
+            try:
+                dialog.iconbitmap("./assets/icons/songpdf.ico")
+            except:
+                pass
 
         conn = sqlite3.connect(DB_FILE)
         cur = conn.cursor()
-        cur.execute("SELECT titulo, artista, tonalidade, pdf FROM musicas WHERE id=?", (music_id,))
+        cur.execute("SELECT titulo, artista, tonalidade, pdf, texto_original FROM musicas WHERE id=?", (music_id,))
         row = cur.fetchone()
         conn.close()
 
         if not row:
-            messagebox.showerror("Erro", "Música não encontrada.")
+            mostrar_mensagem_topo("Erro", "Música não encontrada.", "error")
+            dialog.destroy()
             return
 
         titulo_var = ctk.StringVar(value=row[0])
         artista_var = ctk.StringVar(value=row[1])
         tonalidade_var = ctk.StringVar(value=row[2])
+        tamanho_fonte_var = ctk.IntVar(value=11)
         pdf_bytes = row[3]
+        texto_original = row[4] if row[4] else ""
 
-        letra = ""
-        if pdf_bytes:
-            try:
-                reader = PyPDF2.PdfReader(BytesIO(pdf_bytes))
-                texto = ""
-                for page in reader.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        texto += page_text + "\n"
-                linhas = [l.strip() for l in texto.splitlines() if l.strip()]
-                if len(linhas) >= 3:
-                    letra = "\n".join(linhas[2:])
-            except:
-                letra = ""
+        # Frame para os campos básicos
+        campos_frame = ctk.CTkFrame(dialog)
+        campos_frame.pack(fill="x", padx=20, pady=5)
 
-        ctk.CTkLabel(dialog, text="Título:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=titulo_var).pack(fill="x", padx=20)
-        ctk.CTkLabel(dialog, text="Artista:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=artista_var).pack(fill="x", padx=20)
-        ctk.CTkLabel(dialog, text="Tonalidade:").pack(pady=5)
-        ctk.CTkEntry(dialog, textvariable=tonalidade_var).pack(fill="x", padx=20)
+        ctk.CTkLabel(campos_frame, text="Título:").grid(row=0, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=titulo_var).grid(row=0, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Artista:").grid(row=1, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=artista_var).grid(row=1, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Tonalidade:").grid(row=2, column=0, sticky="w", pady=5)
+        ctk.CTkEntry(campos_frame, textvariable=tonalidade_var).grid(row=2, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkLabel(campos_frame, text="Tamanho da Fonte:").grid(row=3, column=0, sticky="w", pady=5)
+        fonte_frame = ctk.CTkFrame(campos_frame, fg_color="transparent")
+        fonte_frame.grid(row=3, column=1, sticky="ew", pady=5, padx=(10, 0))
+        
+        ctk.CTkSlider(fonte_frame, from_=8, to=16, variable=tamanho_fonte_var, 
+                     number_of_steps=8, width=150).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(fonte_frame, textvariable=tamanho_fonte_var).pack(side="left")
 
-        ctk.CTkLabel(dialog, text="Letra / Conteúdo do PDF:").pack(pady=5)
-        letra_text = ctk.CTkTextbox(dialog, height=200)
+        campos_frame.columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(dialog, text="Letra / Conteúdo do PDF:").pack(pady=(10, 5))
+        letra_text = ctk.CTkTextbox(dialog, height=250)
         letra_text.pack(fill="both", padx=20, pady=5, expand=True)
-        letra_text.insert("1.0", letra)
+        letra_text.insert("1.0", texto_original)
 
         def save():
-            pdf_bytes = gerar_pdf(titulo_var.get(), artista_var.get(), tonalidade_var.get(), letra_text.get("1.0", "end-1c"))
-            update_music(music_id, titulo_var.get(), artista_var.get(), tonalidade_var.get(), pdf_bytes)
+            # Obter o texto preservando as quebras de linha
+            texto_completo = letra_text.get("1.0", "end-1c")
+            
+            pdf_bytes = gerar_pdf(titulo_var.get(), artista_var.get(), tonalidade_var.get(), 
+                                 texto_completo, tamanho_fonte_var.get())
+            update_music(music_id, titulo_var.get(), artista_var.get(), tonalidade_var.get(), 
+                        pdf_bytes, texto_completo)
             dialog.destroy()
             self.apply_search()
 
@@ -1058,7 +1104,7 @@ class SongPDFApp(ctk.CTk):
 
     # ---------- Importar PDF ----------
     def import_pdf_dialog(self):
-        path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
+        path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf"), ("DOCX Files", "*.docx"), ("Tipos Suportados", "*.pdf *.docx")])
         if not path:
             return
 
@@ -1070,68 +1116,55 @@ class SongPDFApp(ctk.CTk):
                 if page_text:
                     texto += page_text + "\n"
 
-            # Função para limpar caracteres especiais
+            # Função para limpar caracteres especiais sem remover quebras de linha
             def limpar_texto(texto):
-                # Remove caracteres de controle (0x00-0x1F) exceto tab, newline, carriage return
-                texto_limpo = ''.join(char for char in texto if ord(char) >= 32 or ord(char) in [9, 10, 13])
-                # Remove espaços no início e fim
-                texto_limpo = texto_limpo.strip()
-                # Remove múltiplos espaços consecutivos
-                texto_limpo = ' '.join(texto_limpo.split())
-                return texto_limpo
+                return ''.join(
+                    char for char in texto if ord(char) >= 32 or ord(char) in [9, 10, 13]
+                )
 
-            linhas = [limpar_texto(l) for l in texto.splitlines() if limpar_texto(l)]
-            
-            if len(linhas) < 2:
-                messagebox.showerror("Erro", "PDF inválido: precisa ter pelo menos título e artista/tonalidade.")
+            # Mantém linhas vazias do PDF
+            linhas = [limpar_texto(l) for l in texto.splitlines()]
+
+            if len([l for l in linhas if l.strip()]) < 2:
+                mostrar_mensagem_topo("Erro", "PDF inválido: precisa ter pelo menos título e artista/tonalidade.", "error")
                 return
 
-            titulo = limpar_texto(linhas[0])
+            titulo = limpar_texto(linhas[0]).strip()
             artista, tonalidade = "", ""
-            
+
             # Analisa a segunda linha para separar artista e tonalidade
-            linha2 = limpar_texto(linhas[1])
-            
-            # Lista de separadores em ordem de prioridade
+            linha2 = limpar_texto(linhas[1]).strip()
+
             separadores = ["•", "-", "|", ":", ";", "–", "—"]
-            
             encontrou_separador = False
             for sep in separadores:
                 if sep in linha2:
-                    partes = [limpar_texto(x) for x in linha2.split(sep)]
+                    partes = [limpar_texto(x).strip() for x in linha2.split(sep)]
                     if len(partes) >= 2:
                         artista = partes[0]
                         tonalidade = partes[1]
-                        # Se houver mais partes, junta as restantes na tonalidade
                         if len(partes) > 2:
                             tonalidade = sep.join(partes[1:])
                         encontrou_separador = True
                         break
-            
-            # Se não encontrou separador, tenta lógica alternativa
+
             if not encontrou_separador:
-                # Verifica se a linha tem palavras que podem indicar tonalidade
-                palavras_tonalidade = ["C", "D", "E", "F", "G", "A", "B", 
-                                    "Cm", "Dm", "Em", "Fm", "Gm", "Am", "Bm",
-                                    "C#", "D#", "F#", "G#", "A#",
-                                    "Db", "Eb", "Gb", "Ab", "Bb",
-                                    "Dó", "Ré", "Mi", "Fá", "Sol", "Lá", "Si",
-                                    "Dóm", "Rém", "Mim", "Fám", "Solm", "Lám", "Sim"]
-                
+                palavras_tonalidade = [
+                    "C", "D", "E", "F", "G", "A", "B",
+                    "Cm", "Dm", "Em", "Fm", "Gm", "Am", "Bm",
+                    "C#", "D#", "F#", "G#", "A#",
+                    "Db", "Eb", "Gb", "Ab", "Bb",
+                    "Dó", "Ré", "Mi", "Fá", "Sol", "Lá", "Si",
+                    "Dóm", "Rém", "Mim", "Fám", "Solm", "Lám", "Sim"
+                ]
                 palavras = linha2.split()
                 if palavras and any(palavras[-1].upper() == p.upper() for p in palavras_tonalidade):
                     artista = " ".join(palavras[:-1])
                     tonalidade = palavras[-1]
                 else:
-                    artista = linha2  # Se não conseguir separar, coloca tudo no artista
+                    artista = linha2
 
-            # Limpa novamente os campos individuais
-            artista = limpar_texto(artista)
-            tonalidade = limpar_texto(tonalidade)
-            
-            # Remove qualquer caractere especial restante que possa ser invisível
             def remover_caracteres_invisiveis(texto):
-                # Caracteres comuns que podem aparecer invisíveis
                 caracteres_invisiveis = [
                     '\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
                     '\x08', '\x0b', '\x0c', '\x0e', '\x0f', '\x10', '\x11', '\x12',
@@ -1145,57 +1178,63 @@ class SongPDFApp(ctk.CTk):
                 for char in caracteres_invisiveis:
                     texto = texto.replace(char, '')
                 return texto.strip()
-            
+
             artista = remover_caracteres_invisiveis(artista)
             tonalidade = remover_caracteres_invisiveis(tonalidade)
-            
-            letra = "\n".join(limpar_texto(l) for l in linhas[2:]) if len(linhas) > 2 else ""
-            
-            # Mostra diálogo de confirmação com os dados extraídos
+
+            # Mantém quebras de linha originais a partir da 3ª linha
+            letra = "\n".join(linhas[2:]) if len(linhas) > 2 else ""
+
+            # Diálogo de confirmação
             confirm_dialog = ctk.CTkToplevel(self)
             confirm_dialog.title("Confirmar Importação")
-            confirm_dialog.geometry("400x350")
+            confirm_dialog.geometry("400x500")
             confirm_dialog.attributes("-topmost", True)
-            
+
             ctk.CTkLabel(confirm_dialog, text="Título:").pack(pady=5)
             titulo_entry = ctk.CTkEntry(confirm_dialog, width=350)
             titulo_entry.insert(0, titulo)
             titulo_entry.pack(fill="x", padx=20)
-            
+
             ctk.CTkLabel(confirm_dialog, text="Artista:").pack(pady=5)
             artista_entry = ctk.CTkEntry(confirm_dialog, width=350)
             artista_entry.insert(0, artista)
             artista_entry.pack(fill="x", padx=20)
-            
+
             ctk.CTkLabel(confirm_dialog, text="Tonalidade:").pack(pady=5)
             tonalidade_entry = ctk.CTkEntry(confirm_dialog, width=350)
             tonalidade_entry.insert(0, tonalidade)
             tonalidade_entry.pack(fill="x", padx=20)
-            
+
+            ctk.CTkLabel(confirm_dialog, text="Letra (apenas leitura):").pack(pady=5)
+            letra_text = ctk.CTkTextbox(confirm_dialog, height=180)
+            letra_text.pack(fill="x", padx=20, pady=5)
+            letra_text.insert("1.0", letra)
+            letra_text.configure(state="normal")
+
             def confirm_import():
                 titulo_final = remover_caracteres_invisiveis(titulo_entry.get().strip())
                 artista_final = remover_caracteres_invisiveis(artista_entry.get().strip())
                 tonalidade_final = remover_caracteres_invisiveis(tonalidade_entry.get().strip())
-                
+
                 if not titulo_final:
-                    messagebox.showwarning("Aviso", "O título é obrigatório.")
+                    mostrar_mensagem_topo("Aviso", "O título é obrigatório.", "warning")
                     return
-                
+
                 pdf_bytes = gerar_pdf(titulo_final, artista_final, tonalidade_final, letra)
-                music_id = insert_music(titulo_final, artista_final, tonalidade_final, pdf_bytes)
-                
-                # Perguntar se quer adicionar a grupos
-                if messagebox.askyesno("Grupos", "Deseja adicionar esta música a algum grupo?"):
+                music_id = insert_music(titulo_final, artista_final, tonalidade_final, pdf_bytes, letra)
+
+                if mostrar_mensagem_topo("Grupos", "Deseja adicionar esta música a algum grupo?", "yesno"):
                     self.gerenciar_grupos_musica(music_id, titulo_final)
-                
+
                 confirm_dialog.destroy()
                 self.apply_search()
-                messagebox.showinfo("Sucesso", "PDF importado com sucesso!")
-            
+                mostrar_mensagem_topo("Sucesso", "PDF importado com sucesso!", "info")
+
             ctk.CTkButton(confirm_dialog, text="Confirmar Importação", command=confirm_import).pack(pady=20)
-            
+
         except Exception as e:
-            messagebox.showerror("Erro", f"Falha ao importar PDF: {e}")
+            mostrar_mensagem_topo("Erro", f"Falha ao importar PDF: {e}", "error")
 
 
 if __name__ == "__main__":
