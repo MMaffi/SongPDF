@@ -21,9 +21,7 @@ UninstallDisplayIcon=..\assets\icons\logo.ico
 ; Exe principal
 Source: "..\dist\SongPDF.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Pasta de dados (exceto o banco)
-Source: "..\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs createallsubdirs; Excludes: "songpdf.db"
-; Banco de dados (copiar apenas se não existir)
-Source: "..\data\songpdf.db"; DestDir: "{app}\data"; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "..\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs createallsubdirs; Excludes: "*.db"
 ; Pasta assets
 Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: recursesubdirs createallsubdirs ignoreversion
 
