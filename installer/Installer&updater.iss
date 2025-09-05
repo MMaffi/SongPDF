@@ -29,6 +29,10 @@ Source: "..\assets\*"; DestDir: "{app}\assets"; Flags: recursesubdirs createalls
 [Tasks]
 Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDescription: "Tarefas adicionais"; Flags: unchecked
 
+;------------------- RUN ----------------------
+[Run]
+Filename: "{app}\SongPDF.exe"; Description: "Executar SongPDF"; Flags: nowait postinstall skipifsilent
+
 ; ------------------ ATALHOS ------------------
 [Icons]
 ; Atalho no menu iniciar
