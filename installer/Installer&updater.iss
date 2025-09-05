@@ -12,9 +12,9 @@ DisableProgramGroupPage=no
 WizardStyle=modern
 
 ; Ícone do instalador
-SetupIconFile=..\assets\icons\songpdf.ico
+SetupIconFile=..\assets\icons\logo.ico
 ; Ícone do desinstalador
-UninstallDisplayIcon=..\assets\icons\songpdf.ico
+UninstallDisplayIcon=..\assets\icons\logo.ico
 
 ; ------------------ ARQUIVOS ------------------
 [Files]
@@ -34,10 +34,10 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDesc
 ; ------------------ ATALHOS ------------------
 [Icons]
 ; Atalho no menu iniciar
-Name: "{group}\SongPDF"; Filename: "{app}\SongPDF.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icons\songpdf.ico"
+Name: "{group}\SongPDF"; Filename: "{app}\SongPDF.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icons\logo.ico"
 Name: "{group}\Desinstalar SongPDF"; Filename: "{uninstallexe}"
 ; Atalho na área de trabalho
-Name: "{userdesktop}\SongPDF"; Filename: "{app}\SongPDF.exe"; Tasks: desktopicon; IconFilename: "{app}\assets\icons\songpdf.ico"
+Name: "{userdesktop}\SongPDF"; Filename: "{app}\SongPDF.exe"; Tasks: desktopicon; IconFilename: "{app}\assets\icons\logo.ico"
 
 ; ------------------ REGISTRO OPCIONAL ------------------
 ; Você pode adicionar chaves de registro se quiser, mas não é obrigatório
