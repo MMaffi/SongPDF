@@ -10,6 +10,7 @@ Compression=lzma
 SolidCompression=yes
 DisableProgramGroupPage=no
 WizardStyle=modern
+
 ; Ícone do instalador
 SetupIconFile=..\assets\icons\songpdf.ico
 ; Ícone do desinstalador
@@ -19,7 +20,7 @@ UninstallDisplayIcon=..\assets\icons\songpdf.ico
 [Files]
 ; Exe principal
 Source: "..\dist\SongPDF.exe"; DestDir: "{app}"; Flags: ignoreversion
-; Pasta data (exceto o banco)
+; Pasta de dados (exceto o banco)
 Source: "..\data\*"; DestDir: "{app}\data"; Flags: recursesubdirs createallsubdirs; Excludes: "songpdf.db"
 ; Banco de dados (copiar apenas se não existir)
 Source: "..\data\songpdf.db"; DestDir: "{app}\data"; Flags: onlyifdoesntexist uninsneveruninstall
@@ -32,8 +33,10 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDesc
 
 ; ------------------ ATALHOS ------------------
 [Icons]
+; Atalho no menu iniciar
 Name: "{group}\SongPDF"; Filename: "{app}\SongPDF.exe"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icons\songpdf.ico"
 Name: "{group}\Desinstalar SongPDF"; Filename: "{uninstallexe}"
+; Atalho na área de trabalho
 Name: "{userdesktop}\SongPDF"; Filename: "{app}\SongPDF.exe"; Tasks: desktopicon; IconFilename: "{app}\assets\icons\songpdf.ico"
 
 ; ------------------ REGISTRO OPCIONAL ------------------
